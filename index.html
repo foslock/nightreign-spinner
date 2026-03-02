@@ -204,7 +204,7 @@
     touch-action: none;
   }
   .wheel-viewport:active { cursor: grabbing; }
-  .wheel-viewport.no-drag { cursor: default; }
+  .wheel-viewport.no-drag { cursor: default; pointer-events: none; }
 
   /* Selection highlight bar at vertical center */
   .center-bar {
@@ -489,35 +489,34 @@ class Wheel {
     this.strip.querySelectorAll('.selected').forEach(e => e.classList.remove('selected'));
   }
 
-  spin(onDone) {
+  spin(duration, onDone) {
+    // Kill any active drag immediately
+    this.dragging = false;
     this.clearSelection();
     this.canDrag = false;
     this.vp.classList.add('no-drag');
 
     const vpH = this.vp.clientHeight;
 
-    // Pick landing target in a safe range
-    const lo = N * 8;
-    const hi = this.items.length - N * 8;
-    const tIdx = lo + Math.floor(Math.random() * (hi - lo));
+    // Reset to a known clean start position (middle of strip)
+    const startIdx = Math.floor(this.numCopies / 2) * N;
+    this.offset = (vpH / 2) - (startIdx * this.ih + this.ih / 2);
+    this._apply();
 
-    // Desired offset so tIdx is at viewport center
+    // Pick landing target: choose a copy well ahead of start (in scroll direction)
+    // We scroll upward (offset decreases), so target should be at a higher index
+    const spinCopies = 6 + Math.floor(Math.random() * 3); // 6-8 full set passes
+    const winnerInSet = Math.floor(Math.random() * N);
+    const tIdx = startIdx + spinCopies * N + winnerInSet;
+
+    // Desired final offset so tIdx is perfectly centered
     const landOffset = (vpH / 2) - (tIdx * this.ih + this.ih / 2);
 
-    // Spin extra distance (always scroll upward = offset decreasing)
-    const extraItems = N * (5 + Math.floor(Math.random() * 5));
-    const travel = (this.offset - landOffset) + extraItems * this.ih;
-    // If travel happens to be negative (already past target), add more
-    const totalTravel = travel > 0 ? travel : travel + this.copyH * 3;
+    // Total pixel distance to animate (always positive, scrolling upward)
+    const animDist = this.offset - landOffset;
 
     const startOff = this.offset;
-    const endOff = startOff - totalTravel;
-    // We'll ease toward endOff, but then snap to landOffset at end
-    // Actually let's just interpolate properly:
-    // The actual end position should be landOffset. The total animated distance is:
-    const animDist = startOff - landOffset + extraItems * this.ih;
-
-    const dur = 4500 + Math.random() * 2000;
+    const winnerName = this.items[tIdx];
     let t0 = null;
     const self = this;
 
@@ -525,7 +524,7 @@ class Wheel {
 
     function tick(ts) {
       if (!t0) t0 = ts;
-      const p = Math.min((ts - t0) / dur, 1);
+      const p = Math.min((ts - t0) / duration, 1);
       const e = ease(p);
       self.offset = startOff - animDist * e;
       self._apply();
@@ -533,15 +532,16 @@ class Wheel {
       if (p < 1) {
         requestAnimationFrame(tick);
       } else {
+        // Snap exactly to landing position
         self.offset = landOffset;
         self._apply();
 
-        // Highlight
+        // Highlight the winner element
         const el = self.strip.children[tIdx];
         if (el) el.classList.add('selected');
         self.chevron.classList.add('active');
         self.bar.classList.add('active');
-        self.resTxt.textContent = self.items[tIdx];
+        self.resTxt.textContent = winnerName;
         self.resBox.classList.add('visible');
         if (onDone) onDone();
       }
@@ -583,6 +583,11 @@ document.getElementById('spinBtn').addEventListener('click', async () => {
   await w1.build();
   await w2.build();
 
+  // Shared base duration with small per-wheel variance (within ~400ms of each other)
+  const baseDur = 5000 + Math.random() * 1000;
+  const dur1 = baseDur + (Math.random() - 0.5) * 400;
+  const dur2 = baseDur + (Math.random() - 0.5) * 400;
+
   // Wait one more frame then spin
   requestAnimationFrame(() => {
     let done = 0;
@@ -595,8 +600,8 @@ document.getElementById('spinBtn').addEventListener('click', async () => {
         w2.unlock();
       }
     };
-    w1.spin(fin);
-    w2.spin(fin);
+    w1.spin(dur1, fin);
+    w2.spin(dur2, fin);
   });
 });
 
